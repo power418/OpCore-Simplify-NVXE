@@ -118,6 +118,36 @@ class HardwareCustomizer:
         devices = self._get_compatible_devices(device_type)
         device_groups = None
 
+        if device_type == "GPU":
+            has_experimental = any(props.get("Experimental") for props in devices.values())
+            has_disabled_gpu = any("GPU" in dev_name for dev_name in self.disabled_devices)
+            if has_experimental or has_disabled_gpu:
+                print("\n*** GPU Selection & Driver Configuration ***")
+                print("Detected graphics hardware:")
+                for gname, gprops in devices.items():
+                    exp_info = " [Experimental: WhateverXe]" if gprops.get("Experimental") else " [Supported]"
+                    print("  - {} ({}): {}".format(gname, gprops.get("Device Type", "GPU"), exp_info))
+                for dname in self.disabled_devices:
+                    if "GPU" in dname:
+                        print("  - {}: Disabled (Laptop dGPU unsupported in macOS)".format(dname))
+                print("")
+                print("GPU Configuration Options:")
+                print("  1. Enable Intel Iris Xe (WhateverXe) - NVIDIA dGPU Disabled (Recommended)")
+                print("  2. Disable all GPU acceleration (VESA / Basic Safe Mode)")
+                print("")
+                gpu_pick = self.utils.request_input("Select GPU configuration (default: 1): ").strip() or "1"
+                if gpu_pick == "2":
+                    for gname, gprops in list(devices.items()):
+                        self.disabled_devices[f"GPU: {gname}"] = gprops
+                        if gname in self.customized_hardware.get("GPU", {}):
+                            del self.customized_hardware["GPU"][gname]
+                else:
+                    for gname, gprops in devices.items():
+                        if not device_type in self.selected_devices:
+                            self.selected_devices[device_type] = {}
+                        self.selected_devices[device_type][gname] = gprops
+                return
+
         if len(devices) > 1:       
             print("\n*** Multiple {} Devices Detected".format(device_type))
             if device_type == "WiFi" or device_type == "Bluetooth":

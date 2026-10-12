@@ -389,6 +389,8 @@ class OCPE:
             print("4. Customize Kexts")
             print("5. Customize SMBIOS Model")
             print("6. Build OpenCore EFI")
+            print("7. Experimental Drivers (Opt-In Subsystem)")
+            print("8. Quick Intel Iris Xe Setup (WhateverXe Mode)")
             print("")
             print("Q. Quit")
             print("")
@@ -456,6 +458,29 @@ class OCPE:
                 print("\t{}".format(self.result_dir))
                 print("")
                 self.u.request_input("Press Enter to main menu...")
+            elif option == "7":
+                from Scripts.experimental_drivers.ui import experimental_menu
+                menu = experimental_menu.ExperimentalDriversMenu(self)
+                menu.show(hardware_report, macos_version or "24.0.0")
+            elif option in ("8", "xe", "whateverxe"):
+                if not hardware_report_path:
+                    hardware_report_path, hardware_report = self.select_hardware_report()
+                if hardware_report:
+                    hardware_report, native_macos_version, ocl_patched_macos_version = self.c.check_compatibility(hardware_report)
+                    macos_version = self.select_macos_version(hardware_report, native_macos_version, ocl_patched_macos_version)
+                    customized_hardware, disabled_devices, needs_oclp = self.h.hardware_customization(hardware_report, macos_version)
+                    smbios_model = self.s.select_smbios_model(customized_hardware, macos_version)
+                    if not self.ac.ensure_dsdt():
+                        self.ac.select_acpi_tables()
+                    self.ac.select_acpi_patches(customized_hardware, disabled_devices)
+                    needs_oclp = self.k.select_required_kexts(customized_hardware, macos_version, needs_oclp, self.ac.patches)
+                    self.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, self.ac.patches, self.k)
+                    self.u.head("Intel Iris Xe (WhateverXe) Configured")
+                    print("\n\033[1;32mIntel Iris Xe (WhateverXe) configuration prepared successfully!\033[0m")
+                    print("  - Driver: WhateverXe (Enabled)")
+                    print("  - dGPU:   NVIDIA dGPU (Disabled via ACPI)")
+                    print("  - SMBIOS: {}\n".format(smbios_model))
+                    self.u.request_input("Press Enter to return to main menu...")
 
 if __name__ == '__main__':
     update_flag = updater.Updater().run_update()
@@ -463,6 +488,14 @@ if __name__ == '__main__':
         os.execv(sys.executable, ['python3'] + sys.argv)
 
     o = OCPE()
+
+    if any(arg in sys.argv for arg in ("--xe", "--experimental", "-e")):
+        from Scripts.experimental_drivers.ui import experimental_menu
+        rpt_path, rpt_data = o.select_hardware_report()
+        menu = experimental_menu.ExperimentalDriversMenu(o)
+        menu.show(rpt_data, "24.0.0")
+        sys.exit(0)
+
     while True:
         try:
             o.main()

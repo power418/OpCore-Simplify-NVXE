@@ -523,14 +523,18 @@ class ConfigProdigy:
                 if not "-lilubetaall" in boot_args:
                     boot_args.append("-lilubetaall")
 
+            if kext.name == "WhateverXe":
+                boot_args.append("-xe-force-enable")
+
             if kext.name == "WhateverGreen":
                 if  any(tuple(map(int, "3840x2160".split("x"))) <= tuple(map(int, monitor_info.get("Resolution").split("x"))) for monitor_name, monitor_info in hardware_report.get("Monitor", {}).items()) and \
                     self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("20.0.0"):
                     boot_args.append("-cdfon")
 
+                gpu_items = list(hardware_report.get("GPU", {}).items()) if hardware_report.get("GPU") else []
                 if  "Intel" in hardware_report.get("CPU").get("Manufacturer") and \
-                    "Integrated GPU" in list(hardware_report.get("GPU").items())[-1][-1].get("Device Type"):
-                    intergrated_gpu = list(hardware_report.get("GPU").items())[-1]
+                    gpu_items and "Integrated GPU" in gpu_items[-1][-1].get("Device Type", ""):
+                    intergrated_gpu = gpu_items[-1]
                     if intergrated_gpu[-1].get("OCLP Compatibility"):
                         boot_args.append("ipc_control_port_options=0")
 
@@ -546,23 +550,24 @@ class ConfigProdigy:
                         if intergrated_gpu[-1].get("Device ID")[5:].startswith(("59", "8C", "3E", "87", "9B")) and not intergrated_gpu[-1].get("Device ID").endswith("5917"):
                             boot_args.append("-igfxbl{}".format("t" if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("22.5.0") else "r"))
 
-                discrete_gpu = list(hardware_report.get("GPU").items())[0][-1]
-                if discrete_gpu.get("Device Type") == "Discrete GPU":
-                    if "Navi" in discrete_gpu.get("Codename"):
-                        boot_args.append("agdpmod=pikera")
+                if gpu_items:
+                    discrete_gpu = gpu_items[0][-1]
+                    if discrete_gpu.get("Device Type") == "Discrete GPU":
+                        if "Navi" in discrete_gpu.get("Codename"):
+                            boot_args.append("agdpmod=pikera")
 
-                    if discrete_gpu.get("Device ID") in pci_data.SpoofGPUIDs:
-                        boot_args.append("-radcodec")
+                        if discrete_gpu.get("Device ID") in pci_data.SpoofGPUIDs:
+                            boot_args.append("-radcodec")
 
-                    if discrete_gpu.get("Device ID") in ("1002-6610", "1002-682B", "1002-6837", "1002-683D", "1002-683F"):
-                        boot_args.append("radpg=15")
+                        if discrete_gpu.get("Device ID") in ("1002-6610", "1002-682B", "1002-6837", "1002-683D", "1002-683F"):
+                            boot_args.append("radpg=15")
 
-                    if discrete_gpu.get("Device ID") in ("1002-67B0", "1002-67B1", "1002-67B8", "1002-6810", "1002-6811"):
-                        boot_args.append("-raddvi")
+                        if discrete_gpu.get("Device ID") in ("1002-67B0", "1002-67B1", "1002-67B8", "1002-6810", "1002-6811"):
+                            boot_args.append("-raddvi")
 
-                    if discrete_gpu.get("OCLP Compatibility"):
-                        if discrete_gpu.get("Manufacturer") == "AMD":
-                            boot_args.append("-radvesa" if self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("23.0.0") else "-amd_no_dgpu_accel")
+                        if discrete_gpu.get("OCLP Compatibility"):
+                            if discrete_gpu.get("Manufacturer") == "AMD":
+                                boot_args.append("-radvesa" if self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("23.0.0") else "-amd_no_dgpu_accel")
                         elif discrete_gpu.get("Manufacturer") == "NVIDIA" and not "Kepler" in discrete_gpu.get("Codename"):
                             boot_args.extend(("nvda_drv_vrl=1", "ngfxcompat=1", "ngfxgl=1"))
             elif kext.name == "AppleALC":
@@ -662,12 +667,13 @@ class ConfigProdigy:
         config["Kernel"]["Quirks"]["LapicKernelPanic"] = "HP " in hardware_report.get("Motherboard").get("Name")
         config["Kernel"]["Quirks"]["PanicNoKextDump"] = config["Kernel"]["Quirks"]["PowerTimeoutKernelPanic"] = True
         config["Kernel"]["Quirks"]["ProvideCurrentCpuInfo"] = "AMD" in hardware_report.get("CPU").get("Manufacturer") or hardware_report.get("CPU").get("Codename") in cpu_data.IntelCPUGenerations[4:20]
+        gpu_items = list(hardware_report.get("GPU", {}).items()) if hardware_report.get("GPU") else []
         config["Kernel"]["Patch"] = self.load_kernel_patch(
             hardware_report.get("Motherboard").get("Chipset"),
             hardware_report.get("CPU").get("Manufacturer"),
             hardware_report.get("CPU").get("Codename"), 
             hardware_report.get("CPU").get("Core Count"), 
-            list(hardware_report.get("GPU").items())[0][-1].get("Manufacturer"),
+            (gpu_items[0][-1].get("Manufacturer") if gpu_items else "Intel"),
             hardware_report.get("Network", {}),
             macos_version,
             kexts,
@@ -725,9 +731,10 @@ class ConfigProdigy:
                 if self.utils.parse_darwin_version(macos_version) > self.utils.parse_darwin_version("23.0.0"):
                     revpatch.append("cpuname")
                 config["PlatformInfo"]["Generic"]["ProcessorType"] = 1537 if int(hardware_report.get("CPU").get("Core Count")) < 8 else 3841
+            gpu_items = list(hardware_report.get("GPU", {}).items()) if hardware_report.get("GPU") else []
             if  "Intel" in hardware_report.get("CPU").get("Manufacturer") and \
-                "Integrated GPU" in list(hardware_report.get("GPU").items())[-1][-1].get("Device Type"):
-                intergrated_gpu = list(hardware_report.get("GPU").items())[-1][-1]
+                gpu_items and "Integrated GPU" in gpu_items[-1][-1].get("Device Type", ""):
+                intergrated_gpu = gpu_items[-1][-1]
                 if intergrated_gpu.get("OCLP Compatibility"):
                     config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]["OCLP-Settings"] = "-allow_amfi"
                     if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.4.0"):

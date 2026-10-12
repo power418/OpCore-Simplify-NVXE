@@ -194,6 +194,8 @@ class KextMaestro:
             if "Integrated GPU" in gpu_props.get("Device Type"):
                 if "AMD" in gpu_props.get("Manufacturer"):
                     selected_kexts.append("NootedRed")
+                elif gpu_props.get("Experimental") or gpu_props.get("Driver") == "WhateverXe":
+                    selected_kexts.append("WhateverXe")
                 else:
                     selected_kexts.append("WhateverGreen")
             else:

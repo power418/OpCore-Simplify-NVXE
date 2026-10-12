@@ -103,7 +103,8 @@ class SMBIOS:
         elif ("Sandy Bridge" in codename or "Ivy Bridge" in codename) and self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("22.0.0"):
             smbios_model = "MacPro6,1"
 
-        if platform != "Laptop" and list(hardware_report.get("GPU").items())[-1][-1].get("Device Type") != "Integrated GPU":
+        gpu_items = list(hardware_report.get("GPU", {}).items()) if hardware_report.get("GPU") else []
+        if platform != "Laptop" and (not gpu_items or gpu_items[-1][-1].get("Device Type") != "Integrated GPU"):
             return smbios_model
         
         if codename in ("Arrandale", "Clarksfield"):
@@ -117,21 +118,21 @@ class SMBIOS:
                 smbios_model = "MacBookPro8,1" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "MacBookPro8,2"
         elif "Ivy Bridge" in codename:
             if "Desktop" in platform:
-                smbios_model = "iMac13,1" if "Integrated GPU" in list(hardware_report.get("GPU").items())[0][-1].get("Device Type") else "iMac13,2"
+                smbios_model = "iMac13,1" if (gpu_items and "Integrated GPU" in gpu_items[0][-1].get("Device Type", "")) else "iMac13,2"
             elif "NUC" in platform:
                 smbios_model = "Macmini6,1" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "Macmini6,2"
             elif "Laptop" in platform:
                 smbios_model = "MacBookPro10,2" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "MacBookPro10,1"
         elif "Haswell" in codename:
             if "Desktop" in platform:
-                smbios_model = "iMac14,4" if "Integrated GPU" in list(hardware_report.get("GPU").items())[0][-1].get("Device Type") else "iMac15,1"
+                smbios_model = "iMac14,4" if (gpu_items and "Integrated GPU" in gpu_items[0][-1].get("Device Type", "")) else "iMac15,1"
             elif "NUC" in platform:
                 smbios_model = "Macmini7,1"
             elif "Laptop" in platform:
                 smbios_model = "MacBookPro11,1" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "MacBookPro11,5"
         elif "Broadwell" in codename:
             if "Desktop" in platform:
-                smbios_model = "iMac16,2" if "Integrated GPU" in list(hardware_report.get("GPU").items())[0][-1].get("Device Type") else "iMac17,1"
+                smbios_model = "iMac16,2" if (gpu_items and "Integrated GPU" in gpu_items[0][-1].get("Device Type", "")) else "iMac17,1"
             elif "NUC" in platform:
                 smbios_model = "iMac16,1"
             elif "Laptop" in platform:
@@ -141,7 +142,7 @@ class SMBIOS:
             if "Laptop" in platform:
                 smbios_model = "MacBookPro13,1" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "MacBookPro13,3"
         elif "Amber Lake" in codename or "Kaby Lake" in codename:
-            smbios_model = "iMac18,1" if "Integrated GPU" in list(hardware_report.get("GPU").items())[0][-1].get("Device Type") else "iMac18,3"
+            smbios_model = "iMac18,1" if (gpu_items and "Integrated GPU" in gpu_items[0][-1].get("Device Type", "")) else "iMac18,3"
             if "Laptop" in platform:
                 smbios_model = "MacBookPro14,1" if int(hardware_report.get("CPU").get("Core Count")) < 4 else "MacBookPro14,3"
         elif "Cannon Lake" in codename or "Whiskey Lake" in codename or "Coffee Lake" in codename or "Comet Lake" in codename:
@@ -157,6 +158,11 @@ class SMBIOS:
                     smbios_model = "MacBookPro16,3" if int(hardware_report.get("CPU").get("Core Count")) < 6 else "MacBookPro16,1"
         elif "Ice Lake" in codename:
             smbios_model = "MacBookAir9,1"
+        elif "Tiger Lake" in codename or "Alder Lake" in codename or "Raptor Lake" in codename:
+            if "Laptop" in platform:
+                smbios_model = "MacBookPro16,4" if int(hardware_report.get("CPU").get("Core Count", 8)) >= 8 else "MacBookPro16,2"
+            else:
+                smbios_model = "iMac20,1" if int(hardware_report.get("CPU").get("Core Count", 8)) < 10 else "iMac20,2"
 
         return smbios_model
     

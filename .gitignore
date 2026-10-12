@@ -161,3 +161,8 @@ cython_debug/
 
 *.DS_Store
 OCK_Files
+Results/
+SysReport/
+*.exe
+Scripts/macserial
+Scripts/macserial.linux

@@ -143,6 +143,18 @@ kexts = [
         }
     ),
     KextInfo(
+        name = "WhateverXe", 
+        description = "Experimental driver for Intel Iris Xe Graphics",
+        category = "Graphics",
+        min_darwin_version = "20.0.0",
+        requires_kexts = ["Lilu"],
+        conflict_group_id = "GPU",
+        github_repo = {
+            "owner": "b00t0x",
+            "repo": "WhateverXe"
+        }
+    ),
+    KextInfo(
         name = "AppleALC", 
         description = "Native macOS HD audio for not officially supported codecs",
         category = "Audio",

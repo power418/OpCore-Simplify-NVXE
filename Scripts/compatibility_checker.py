@@ -35,13 +35,21 @@ class CompatibilityChecker:
         if self.utils.parse_darwin_version(min_version) > self.utils.parse_darwin_version(self.min_native_macos_version):
             self.min_native_macos_version = min_version
 
-    def show_macos_compatibility(self, device_compatibility):
+    def show_macos_compatibility(self, device_compatibility, is_experimental=False, driver_name=None):
         if not device_compatibility:
             return "\033[90mUnchecked\033[0m"
         
         if not device_compatibility[0]:
             return "\033[0;31mUnsupported\033[0m"
         
+        if is_experimental:
+            driver_str = f" ({driver_name})" if driver_name else " (Experimental)"
+            return "\033[1;33mExperimental{}: {} to {}\033[0m".format(
+                driver_str,
+                os_data.get_macos_name_by_darwin(device_compatibility[-1]), 
+                os_data.get_macos_name_by_darwin(device_compatibility[0])
+            )
+
         max_compatibility = self.utils.parse_darwin_version(device_compatibility[0])[0]
         min_compatibility = self.utils.parse_darwin_version(device_compatibility[-1])[0]
         max_version = self.utils.parse_darwin_version(os_data.get_latest_darwin_version())[0]
@@ -127,10 +135,14 @@ class CompatibilityChecker:
                 elif device_id.startswith("8A"):
                     min_version = "19.4.0"
                 else:
-                    max_version = min_version = None
+                    max_version = os_data.get_latest_darwin_version()
+                    min_version = "20.0.0"
+                    gpu_props["Experimental"] = True
+                    gpu_props["Driver"] = "WhateverXe"
 
                 if self.is_low_end_intel_cpu(self.hardware_report.get("CPU").get("Processor Name")):
                     max_version = min_version = None
+                    gpu_props["Experimental"] = False
             elif "AMD" in gpu_manufacturer:
                 if "Navi 2" in gpu_codename:
                     if not "AVX2" in self.hardware_report.get("CPU").get("SIMD Features"):
@@ -184,7 +196,7 @@ class CompatibilityChecker:
                 if self.utils.parse_darwin_version(max_version) < self.utils.parse_darwin_version(ocl_patched_max_version):
                     gpu_props["OCLP Compatibility"] = (ocl_patched_max_version, ocl_patched_min_version if self.utils.parse_darwin_version(ocl_patched_min_version) > self.utils.parse_darwin_version("{}.{}.{}".format(int(max_version[:2]) + 1, 0, 0)) else "{}.{}.{}".format(int(max_version[:2]) + 1, 0, 0))
 
-            print("{}- {}: {}".format(" "*3, gpu_name, self.show_macos_compatibility(gpu_props.get("Compatibility"))))
+            print("{}- {}: {}".format(" "*3, gpu_name, self.show_macos_compatibility(gpu_props.get("Compatibility"), is_experimental=gpu_props.get("Experimental", False), driver_name=gpu_props.get("Driver"))))
 
             if "OCLP Compatibility" in gpu_props:
                 print("{}- OCLP Compatibility{}: {}".format(" "*6, " (requires developer mode)" if navi_requires_developer_mode else "", self.show_macos_compatibility(gpu_props.get("OCLP Compatibility"))))
@@ -215,13 +227,47 @@ class CompatibilityChecker:
             for gpu_props in self.hardware_report.get("GPU").values()
         )
         
+        has_experimental_gpu = any(gpu_props.get("Experimental") for gpu_props in self.hardware_report.get("GPU", {}).values())
+        if has_experimental_gpu:
+            print("")
+            print("\033[1;93m" + "=" * 70)
+            print("  NOTICE: EXPERIMENTAL GRAPHICS HARDWARE DETECTED")
+            print("=" * 70 + "\033[0m")
+            print("Standard macOS does not include native drivers for the following graphics hardware:")
+            for gname, gprops in self.hardware_report.get("GPU", {}).items():
+                if gprops.get("Experimental"):
+                    print("  - {}: Supported via experimental driver ({})".format(gname, gprops.get("Driver", "WhateverXe")))
+                elif gprops.get("Compatibility") == (None, None):
+                    print("  - {}: Unsupported natively (Will be disabled in macOS)".format(gname))
+            print("")
+            print("Driver Configuration Options:")
+            print("  1. Enable Intel Iris Xe (WhateverXe Mode) - NVIDIA dGPU Disabled (Recommended)")
+            print("  2. Open Experimental Drivers Subsystem Menu (Advanced)")
+            print("  3. Exit Program")
+            print("")
+            exp_choice = self.utils.request_input("Select an option (default: 1): ").strip() or "1"
+            if exp_choice == "3":
+                self.utils.exit_program()
+            elif exp_choice == "2":
+                from Scripts.experimental_drivers.ui import experimental_menu
+                menu = experimental_menu.ExperimentalDriversMenu()
+                menu.show(self.hardware_report, "24.0.0")
+
         if gpu_compatibility == (None, None):
             print("")
-            print("You cannot install macOS without a supported GPU.")
-            print("Please do NOT spam my inbox or issue tracker about this issue anymore!")
+            print("\033[1;93mNotice: No natively supported GPU was detected for standard OpenCore pipeline.\033[0m")
+            print("Standard macOS does not include native drivers for your graphics hardware.")
+            print("You can explore the Experimental Drivers Subsystem (WhateverXe / NullMoth NVIDIA),")
+            print("or exit the program.")
             print("")
-            self.utils.request_input()
-            self.utils.exit_program()
+            print("1. Continue to Experimental Drivers Subsystem (Recommended)")
+            print("2. Exit Program")
+            print("")
+            exp_choice = self.utils.request_input("Select an option (default: 1): ").strip() or "1"
+            if exp_choice == "2":
+                self.utils.exit_program()
+            else:
+                gpu_compatibility = (os_data.get_latest_darwin_version(), os_data.get_lowest_darwin_version())
 
         self._restrict_native_compatibility(gpu_compatibility)
 

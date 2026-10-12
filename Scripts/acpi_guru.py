@@ -2036,6 +2036,9 @@ DefinitionBlock ("", "SSDT", 2, "ZPSS", "DNVMe", 0x00000000)
     def enable_backlight_controls(self):
         patches = []
 
+        if not self.hardware_report.get("GPU"):
+            return patches
+
         integrated_gpu = list(self.hardware_report.get("GPU").items())[-1][-1]
         uid_value = 19
         if integrated_gpu.get("Codename") in ("Iron Lake", "Sandy Bridge", "Ivy Bridge"):
@@ -3238,6 +3241,7 @@ DefinitionBlock ("", "SSDT", 2, "ZPSS", "WMIS", 0x00000000)
         selected_patches = []
 
         if  "Laptop" in hardware_report.get("Motherboard").get("Platform") and \
+            hardware_report.get("GPU") and \
             "Integrated GPU" in list(hardware_report.get("GPU").items())[-1][-1].get("Device Type") and \
             not "SURFACE" in hardware_report.get("Motherboard").get("Name"):
             selected_patches.append("ALS")

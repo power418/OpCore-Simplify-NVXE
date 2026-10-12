@@ -1,0 +1,185 @@
+# Canonical driver source definitions for WhateverXe and nullmoth/nvidia-macos-driver
+from ..models.driver import (
+    DriverDefinition,
+    DriverRelease,
+    InstallationType,
+    BackendStatus,
+    VersionPolicy,
+    HardwareFamilySupport,
+)
+
+WHATEVERXE_DEFINITION = DriverDefinition(
+    id="whateverxe",
+    name="WhateverXe",
+    repository="https://github.com/b00t0x/WhateverXe",
+    category="intel-graphics",
+    installation_type=InstallationType.OPENCORE_KEXT,
+    support_status="experimental",
+    macos_versions=["20.0.0", "20.99.99"],  # Target macOS Big Sur (20G1443)
+    hardware_families=[
+        HardwareFamilySupport(
+            family="Tiger Lake",
+            supported_device_ids=["9A40", "9A49", "9A78"],
+            backend_status=BackendStatus.BACKEND_IMPLEMENTED,
+            acceleration_verified=True,
+            evidence_url="https://github.com/b00t0x/WhateverXe#compatibility",
+            notes="Implemented backend on Big Sur 20G1443 with OCLP Xe root patch.",
+        ),
+        HardwareFamilySupport(
+            family="Alder Lake-N / Twin Lake",
+            supported_device_ids=["46D0", "46D1", "46D2", "46D3", "46D4"],
+            backend_status=BackendStatus.BACKEND_IMPLEMENTED,
+            acceleration_verified=True,
+            evidence_url="https://github.com/b00t0x/WhateverXe#compatibility",
+            notes="Implemented backend on Big Sur 20G1443 with external display topology.",
+        ),
+        HardwareFamilySupport(
+            family="Alder Lake-H / Alder Lake-P / Alder Lake-S",
+            supported_device_ids=["46A6", "4626", "46A8", "4690", "4680", "4682"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/b00t0x/WhateverXe#planned",
+            notes="Roadmap: Planned in upstream WhateverXe; backend is NOT implemented in current release.",
+        ),
+        HardwareFamilySupport(
+            family="Raptor Lake",
+            supported_device_ids=["A780", "A781", "A782", "A783", "A7A0", "A7A8"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/b00t0x/WhateverXe#planned",
+            notes="Roadmap: Planned in upstream WhateverXe; backend is NOT implemented in current release.",
+        ),
+    ],
+    requires_root_patch=True,
+    requires_privileged_installation=False,
+    conflicts=["WhateverGreen"],
+    dependencies=["Lilu", "AMFIPass-Mod"],
+    required_boot_args=["-allow3d", "-disablegfxfirmware"],
+    optional_boot_args=["-wex-nopanel", "-igfxdvmt", "-wexdbg", "-wexoff", "-wexbeta", "gfxrst=0"],
+    required_opencore_settings={
+        "DeviceProperties_DVMT_60MB": {
+            "framebuffer-patch-enable": "01000000",
+            "framebuffer-stolenmem": "0000C003",
+        }
+    },
+    installation_destinations=["EFI/OC/Kexts"],
+    version_policy=VersionPolicy.PINNED,
+    pinned_release=DriverRelease(
+        tag="v1.0.0-preview",
+        commit="61a449255d385aeb468f64e5d5042e126f387b90",
+        release_name="WhateverXe 1.0.0 Preview",
+        published_at="2025-01-15T00:00:00Z",
+        download_url="https://github.com/b00t0x/WhateverXe/releases/download/v1.0.0-preview/WhateverXe-RELEASE.zip",
+        sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        changelog="Initial preview release adapting AppleIntelTGLGraphics for Tiger Lake and Alder Lake-N.",
+    ),
+    last_verified_timestamp="2026-10-12T00:00:00Z",
+    source_evidence_references=[
+        "https://github.com/b00t0x/WhateverXe",
+        "https://github.com/b00t0x/OpenCore-Legacy-Patcher",
+    ],
+    automatic_installation_allowed=False,
+)
+
+NVIDIA_MACOS_DRIVER_DEFINITION = DriverDefinition(
+    id="nvidia-macos-driver",
+    name="NullMoth NVIDIA Driver for macOS",
+    repository="https://github.com/nullmoth/nvidia-macos-driver",
+    category="nvidia-graphics",
+    installation_type=InstallationType.EXTERNAL_INSTALLER,
+    support_status="experimental",
+    macos_versions=["24.0.0", "24.99.99"],  # Target macOS 15 Sequoia (15.7.x / 15.8.1)
+    hardware_families=[
+        HardwareFamilySupport(
+            family="GeForce RTX 50 Series Desktop (Blackwell)",
+            supported_device_ids=["2882", "2881", "2880", "2900", "2901"],
+            backend_status=BackendStatus.ACCELERATION_VERIFIED,
+            acceleration_verified=True,
+            evidence_url="https://github.com/nullmoth/nvidia-macos-driver#nullmoth-nvidia-driver-for-macos",
+            notes="Physically tested and verified on RTX 5060 desktop hardware under macOS 15.7.x/15.8.1.",
+        ),
+        HardwareFamilySupport(
+            family="GeForce RTX 40 Series Desktop (Ada Lovelace)",
+            supported_device_ids=["2704", "2782", "2784", "2786", "2787"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/nullmoth/nvidia-macos-driver/blob/main/docs/CARD-SUPPORT.md",
+            notes="Catalogued in GSP firmware table r610; community reports vary, physical qualification pending.",
+        ),
+        HardwareFamilySupport(
+            family="GeForce RTX 30 Series Desktop (Ampere)",
+            supported_device_ids=["2204", "2206", "2208", "2482", "2484", "2486", "2487", "2488", "2489"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/nullmoth/nvidia-macos-driver/blob/main/docs/CARD-SUPPORT.md",
+            notes="Catalogued in GSP table. Requires physical hardware qualification.",
+        ),
+        HardwareFamilySupport(
+            family="GeForce RTX 3050 Mobile / Ampere Mobile",
+            supported_device_ids=["25A0", "25AC", "25A2", "2520", "2560", "2507", "25A9"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/nullmoth/nvidia-macos-driver/blob/main/docs/CARD-SUPPORT.md",
+            notes="Present in device table. CRITICAL NOTE: Mobile Optimus display routing is unverified and generally unsupported on macOS without external display wiring directly to dGPU.",
+        ),
+        HardwareFamilySupport(
+            family="GeForce GTX 16 / RTX 20 Series Desktop (Turing)",
+            supported_device_ids=["1E82", "1E84", "1E87", "1E89", "1F02", "1F06", "1F07", "1F08", "2182", "2184"],
+            backend_status=BackendStatus.CATALOGUED,
+            acceleration_verified=False,
+            evidence_url="https://github.com/nullmoth/nvidia-macos-driver/blob/main/docs/CARD-SUPPORT.md",
+            notes="Catalogued in GSP table; physical validation pending.",
+        ),
+    ],
+    requires_root_patch=True,
+    requires_privileged_installation=True,
+    conflicts=["WhateverGreen-NVIDIA", "nv_disable=1"],
+    dependencies=["NVIDIA-GSP-Firmware", "Mesa-NVK", "AKC-Rebuild"],
+    required_boot_args=[
+        "nvfb=1",
+        "nvaccel=1",
+        "nvfbheads=4",
+        "-nvkmsnosmooth",
+        "amfi_get_out_of_my_way=0x1",
+        "amfi=0x80",
+        "ipc_control_port_options=0",
+    ],
+    optional_boot_args=["-nvrmnoflip", "-nvrmnogo", "-nvrmnobootscreen"],
+    required_opencore_settings={
+        "NVRAM_csr_active_config": "430A0000",
+        "Booter_ResizeAppleGpuBars": -1,
+        "UEFI_ResizeGpuBars": 13,
+        "Misc_SecureBootModel": "Disabled",
+        "Kernel_Block_IONDRVSupport": {
+            "Identifier": "com.apple.iokit.IONDRVSupport",
+            "Strategy": "Exclude",
+            "Enabled": True,
+        },
+    },
+    installation_destinations=[
+        "/Library/Extensions",
+        "/Library/GPUBundles/NVMTLDriver.bundle",
+        "/Users/Shared/nvfw/nvidia/610.57.04",
+    ],
+    version_policy=VersionPolicy.PINNED,
+    pinned_release=DriverRelease(
+        tag="v1.14.0",
+        commit="1083a98db33a0bb824290556de255f9a95ca5403",
+        release_name="1401 and NVIDIA driver 1.14.0",
+        published_at="2025-02-10T00:00:00Z",
+        download_url="https://github.com/nullmoth/nvidia-macos-driver/releases/download/v1.14.0/nullmoth-nvidia-1.14.0.tar.gz",
+        sha256="4f83b140134440538a7c1341a983b63294101e85a54b387413d9426f43274955",
+        changelog="Release 1.14.0: Metal 3 support, Mesa NVK translation layer, adapted r610 kernel modules for Sequoia.",
+    ),
+    last_verified_timestamp="2026-10-12T00:00:00Z",
+    source_evidence_references=[
+        "https://github.com/nullmoth/nvidia-macos-driver",
+        "https://github.com/nullmoth/1401",
+    ],
+    automatic_installation_allowed=False,
+)
+
+CANONICAL_DRIVERS = {
+    WHATEVERXE_DEFINITION.id: WHATEVERXE_DEFINITION,
+    NVIDIA_MACOS_DRIVER_DEFINITION.id: NVIDIA_MACOS_DRIVER_DEFINITION,
+}
