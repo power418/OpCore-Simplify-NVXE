@@ -40,6 +40,7 @@ class UpdateState(str, Enum):
 class VersionPolicy(str, Enum):
     PINNED = "pinned"
     MANUAL = "manual"
+    LATEST = "latest"
 
 @dataclass
 class DriverRelease:

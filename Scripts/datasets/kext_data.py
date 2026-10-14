@@ -993,6 +993,16 @@ kexts = [
             "owner": "acidanthera",
             "repo": "RTCMemoryFixup"
         }
+    ),
+    KextInfo(
+        name = "AMFIPass", 
+        description = "Compatibility layer for AMFI with experimental drivers and root patches",
+        category = "Extras",
+        requires_kexts = ["Lilu"],
+        github_repo = {
+            "owner": "acidanthera",
+            "repo": "AMFIPass"
+        }
     )
 ]
 

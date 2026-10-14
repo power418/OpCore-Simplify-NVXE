@@ -6,12 +6,15 @@ from ..models.driver import (
     DriverRelease,
     HardwareFamilySupport,
     BackendStatus,
+    VersionPolicy,
 )
 from .sources import CANONICAL_DRIVERS
+from .release_fetcher import LiveReleaseFetcher
 
 class DriverRegistry:
     def __init__(self, load_defaults: bool = True):
         self._drivers: Dict[str, DriverDefinition] = {}
+        self.fetcher = LiveReleaseFetcher()
         if load_defaults:
             for d in CANONICAL_DRIVERS.values():
                 self.register_driver(d)
@@ -55,6 +58,27 @@ class DriverRegistry:
             return False
         driver.pinned_release = release
         return True
+
+    def update_to_latest(self, driver_id: str) -> Tuple[bool, Optional[DriverRelease], str]:
+        """Queries upstream repository dynamically and updates driver to the latest release."""
+        driver = self.get_driver(driver_id)
+        if not driver:
+            return False, None, f"Driver '{driver_id}' not found."
+
+        latest_rel = self.fetcher.fetch_latest_release(driver.repository)
+        if not latest_rel:
+            return False, driver.pinned_release, f"Could not fetch latest release for {driver.name} from upstream. Keeping existing release."
+
+        old_tag = driver.pinned_release.tag if driver.pinned_release else "None"
+        driver.pinned_release = latest_rel
+        msg = f"Updated {driver.name} from {old_tag} to latest release {latest_rel.tag}."
+        return True, latest_rel, msg
+
+    def update_all_drivers_to_latest(self) -> Dict[str, Tuple[bool, Optional[DriverRelease], str]]:
+        results = {}
+        for d in self.list_drivers():
+            results[d.id] = self.update_to_latest(d.id)
+        return results
 
     def to_dict(self) -> Dict[str, Any]:
         return {

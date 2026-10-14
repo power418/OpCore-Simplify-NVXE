@@ -27,6 +27,7 @@ class InstallationPlanner:
         selected_driver_ids: List[str],
         active_kexts: Optional[List[str]] = None,
         efi_base_path: str = "EFI",
+        xe_options: Optional[Dict[str, Any]] = None,
     ) -> InstallPlan:
         active_kexts = active_kexts or []
         plan_id = str(uuid.uuid4())[:8]
@@ -104,14 +105,90 @@ class InstallationPlanner:
                     description="Load AMFIPass Mod through OpenCore Kernel/Add.",
                 ))
 
-                # Boot arguments
+                # Boot arguments per WhateverXe README (+ conditional flags).
+                # -wex-nopanel: Tiger Lake headless only. -igfxdvmt: DVMT 60MB only.
+                xe_options = xe_options or {}
+                xe_boot = ["-allow3d", "-disablegfxfirmware"]
+                xe_dp_props: Dict[str, Any] = {}
+                igpu_path = str(xe_options.get("igpu_pci_path") or "PciRoot(0x0)/Pci(0x2,0x0)")
+
+                try:
+                    from Scripts.datasets import whateverxe_data as _xe
+                except ImportError:  # pragma: no cover
+                    from ...datasets import whateverxe_data as _xe  # type: ignore
+
+                intel_igpus = []
+                try:
+                    _integrated = profile.get_integrated_gpu() if hasattr(profile, "get_integrated_gpu") else None
+                except Exception:
+                    _integrated = None
+                if _integrated is not None and (str(getattr(_integrated, "vendor_id", "")).upper() == "8086"):
+                    intel_igpus = [_integrated]
+                if not intel_igpus:
+                    intel_igpus = [g for g in (profile.gpus or []) if str(getattr(g, "vendor_id", "")).upper() == "8086"]
+                # Fallback: any Intel GPU when classification is unavailable.
+                if not intel_igpus:
+                    intel_igpus = [g for g in (profile.gpus or []) if (g.vendor_id or "").upper() == "8086"]
+                if intel_igpus:
+                    _ig = intel_igpus[0]
+                    if getattr(_ig, "pci_path", None):
+                        igpu_path = _ig.pci_path
+                    dev = _xe.normalize_device_id(getattr(_ig, "device_id", ""))
+                    if dev in _xe.TIGER_LAKE_IDS:
+                        has_internal = any(
+                            getattr(d, "connected_gpu", "") == getattr(_ig, "name", "") and getattr(d, "connector_type", "") == "Internal"
+                            for d in (profile.displays or []))
+                        if not has_internal and "-wex-nopanel" not in xe_boot:
+                            xe_boot.append("-wex-nopanel")
+
+                dvmt_opt = xe_options.get("dvmt_megabytes")
+                if dvmt_opt is not None:
+                    try:
+                        if int(dvmt_opt) == 60:
+                            xe_dp_props.update(_xe.DVMT_60MB_PROPERTIES)
+                            xe_boot.append("-igfxdvmt")
+                        elif int(dvmt_opt) != 96:
+                            validation_warnings.append(
+                                "WhateverXe DVMT option {}MB is neither 60 nor 96; no DVMT properties planned (set 96MB in BIOS where possible).".format(dvmt_opt))
+                    except (TypeError, ValueError):
+                        validation_errors.append("Invalid xe_options['dvmt_megabytes']: must be 60, 96, or omitted.")
+
+                override_opt = xe_options.get("device_id_override")
+                if override_opt is not None:
+                    ov = override_opt
+                    if isinstance(ov, str):
+                        s = "".join(c for c in ov if c in "0123456789abcdefABCDEF")
+                        if len(s) == 4:
+                            ov = _xe.encode_device_id_override(s)
+                    phys_id = intel_igpus[0].device_id if intel_igpus else "0000"
+                    ok, _target, err, w = _xe.validate_device_id_override(ov, phys_id, "8086")
+                    validation_warnings.extend(w)
+                    if not ok:
+                        # No silent fallback to physical ID (per docs).
+                        validation_errors.append("Invalid WhateverXe device-id override: {}".format(err))
+                    else:
+                        xe_dp_props["device-id"] = ov
+
                 config_changes.append(ConfigChange(
                     key_path="NVRAM/Add/7C436110-AB2A-4BBB-A880-FE41995C9F82/boot-args",
                     old_value="<current_boot_args>",
-                    new_value="-allow3d -disablegfxfirmware",
+                    new_value=" ".join(xe_boot),
                     operation="update",
-                    description="Append WhateverXe required boot arguments.",
+                    description="Append WhateverXe required boot arguments (-allow3d -disablegfxfirmware plus conditional -wex-nopanel/-igfxdvmt).",
                 ))
+
+                if xe_dp_props:
+                    config_changes.append(ConfigChange(
+                        key_path="DeviceProperties/Add/{}".format(igpu_path),
+                        old_value=None,
+                        new_value=dict(xe_dp_props),
+                        operation="add",
+                        description="WhateverXe iGPU DeviceProperties on {} (DVMT 60MB pair and/or device-id override per README).".format(igpu_path),
+                    ))
+                else:
+                    validation_warnings.append(
+                        "WhateverXe automatic selection needs no iGPU DeviceProperties on {} (96MB DVMT assumed; VBT routing). "
+                        "Set xe_options['dvmt_megabytes']=60 only when firmware is fixed at 60MB.".format(igpu_path))
 
                 recovery_instructions.append(
                     "WhateverXe Recovery: If display fails at boot, boot OpenCore into recovery or single-user mode, "

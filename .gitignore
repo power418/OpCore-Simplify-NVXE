@@ -163,6 +163,7 @@ cython_debug/
 OCK_Files
 Results/
 SysReport/
+BuildOutput/
 *.exe
 Scripts/macserial
 Scripts/macserial.linux

@@ -242,16 +242,27 @@ class CompatibilityChecker:
             print("")
             print("Driver Configuration Options:")
             print("  1. Enable Intel Iris Xe (WhateverXe Mode) - NVIDIA dGPU Disabled (Recommended)")
-            print("  2. Open Experimental Drivers Subsystem Menu (Advanced)")
-            print("  3. Exit Program")
+            print("  2. Discrete NVIDIA dGPU Only (NullMoth Experimental - External Monitor HDMI Only, iGPU Disabled)")
+            print("  3. Open Experimental Drivers Subsystem Menu (Advanced)")
+            print("  4. Exit Program")
             print("")
             exp_choice = self.utils.request_input("Select an option (default: 1): ").strip() or "1"
-            if exp_choice == "3":
+            if exp_choice == "4":
                 self.utils.exit_program()
-            elif exp_choice == "2":
+            elif exp_choice == "3":
                 from Scripts.experimental_drivers.ui import experimental_menu
                 menu = experimental_menu.ExperimentalDriversMenu()
                 menu.show(self.hardware_report, "24.0.0")
+            elif exp_choice == "2":
+                for gname, gprops in self.hardware_report.get("GPU", {}).items():
+                    if "NVIDIA" in str(gprops.get("Manufacturer", "")):
+                        gprops["Experimental"] = True
+                        gprops["Driver"] = "NullMoth"
+                        gprops["NullMoth"] = True
+                        gprops["Compatibility"] = (os_data.get_latest_darwin_version(), os_data.get_lowest_darwin_version())
+                    elif "Intel" in str(gprops.get("Manufacturer", "")):
+                        gprops["Disabled"] = True
+                        gprops["Compatibility"] = (None, None)
 
         if gpu_compatibility == (None, None):
             print("")

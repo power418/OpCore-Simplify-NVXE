@@ -15,6 +15,8 @@ from ..rollback.rollback_manager import RollbackManager
 from ..reporting.compatibility_report import ReportExporter
 from ..models.install_manifest import InstallPlan, RollbackManifest
 from ..models.compatibility_result import CompatibilityReport
+from ..models.driver import VersionPolicy
+from ..models.hardware_profile import HardwareProfile
 
 class ExperimentalDriversMenu:
     def __init__(self, ocpe_instance=None):
@@ -27,6 +29,11 @@ class ExperimentalDriversMenu:
         self.current_plan: Optional[InstallPlan] = None
         self.current_report: Optional[CompatibilityReport] = None
         self.last_manifest: Optional[RollbackManifest] = None
+
+    def _get_target_efi(self) -> str:
+        if self.ocpe and hasattr(self.ocpe, "result_dir") and self.ocpe.result_dir:
+            return os.path.join(self.ocpe.result_dir, "EFI")
+        return os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..", "Results", "EFI"))
 
     def show(self, hardware_report: Optional[Dict[str, Any]] = None, target_macos_version: str = "24.0.0"):
         if not hardware_report:
@@ -131,22 +138,50 @@ class ExperimentalDriversMenu:
             self.u.request_input("Press Enter to continue...")
 
     def _check_updates(self):
-        self.u.head("Check Upstream Driver Updates")
-        print("")
-        print("Checking pinned release against upstream records...")
+        self.u.head("Check Upstream Driver Updates (Live)")
+        print("\nCurrent Driver Versions and Policy:\n")
         for d in self.registry.list_drivers():
             rel = d.pinned_release
-            print(f"\n* {d.name} ({d.repository}):")
+            policy_label = "\033[36mLATEST (Auto-Update)\033[0m" if d.version_policy == VersionPolicy.LATEST else "\033[90mPINNED\033[0m"
+            print(f"* {d.name}:")
+            print(f"  Repository:       {d.repository}")
+            print(f"  Version Policy:   {policy_label}")
             if rel:
-                print(f"  Policy:           {d.version_policy.value}")
-                print(f"  Pinned Version:   {rel.tag}")
-                print(f"  Pinned Commit:    {rel.commit}")
+                print(f"  Current Version:  \033[1;32m{rel.tag}\033[0m (Commit: {rel.commit[:8]})")
                 print(f"  Published:        {rel.published_at}")
-                print("  Status:           \033[32mUp to date (Pinned)\033[0m")
+                if rel.changelog:
+                    first_line = rel.changelog.splitlines()[0][:80]
+                    print(f"  Summary:          {first_line}...")
             else:
-                print("  Status:           \033[33mNo pinned release found\033[0m")
-        print("")
-        self.u.request_input("Press Enter to continue...")
+                print("  Status:           \033[33mNo release configured\033[0m")
+            print("")
+
+        print("Options:")
+        print("  1. Fetch & Update Drivers to Latest Release (Live from GitHub)")
+        print("  2. Toggle Version Policy (Always LATEST vs PINNED)")
+        print("  Q. Return to Menu\n")
+
+        sub_choice = self.u.request_input("Select an action (1/2/Q, default: 1): ").strip().lower() or "1"
+        if sub_choice == "1":
+            print("\nFetching latest releases directly from GitHub repositories...")
+            results = self.registry.update_all_drivers_to_latest()
+            for did, (ok, r, msg) in results.items():
+                if ok and r:
+                    print(f"\033[32m✔ {msg}\033[0m")
+                else:
+                    print(f"\033[33m- {msg}\033[0m")
+            print("")
+            self.u.request_input("Press Enter to continue...")
+        elif sub_choice == "2":
+            for d in self.registry.list_drivers():
+                if d.version_policy == VersionPolicy.LATEST:
+                    d.version_policy = VersionPolicy.PINNED
+                else:
+                    d.version_policy = VersionPolicy.LATEST
+            print("\nToggled version policies for all registered experimental drivers.")
+            self.u.request_input("Press Enter to continue...")
+        else:
+            return
 
     def _view_compatibility(self, profile: HardwareProfile, target_macos_version: str) -> CompatibilityReport:
         self.u.head("Hardware Compatibility Evaluation")
@@ -184,6 +219,7 @@ class ExperimentalDriversMenu:
         self.u.request_input("Press Enter to continue...")
         return report
 
+    def _generate_plan(self, profile: HardwareProfile, target_macos_version: str):
         self.u.head("Generate Dry-Run Installation Plan (Stage A)")
         print("\nSelect drivers to include in the plan:\n")
         print("  1. WhateverXe only (Intel Iris Xe / Xe-LP) [Recommended for Intel iGPU]")
@@ -212,6 +248,11 @@ class ExperimentalDriversMenu:
             print("Invalid selection.")
             self.u.request_input()
             return
+
+        for did in selected_ids:
+            drv = self.registry.get_driver(did)
+            if drv and drv.version_policy == VersionPolicy.LATEST:
+                self.registry.update_to_latest(did)
 
         report = self.engine.evaluate_profile(profile, target_macos_version=target_macos_version)
         self.current_report = report
@@ -286,7 +327,7 @@ class ExperimentalDriversMenu:
             self.u.request_input()
             return
 
-        target_efi = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "Results", "EFI")
+        target_efi = self._get_target_efi()
         if not os.path.exists(target_efi):
             os.makedirs(os.path.join(target_efi, "OC", "Kexts"), exist_ok=True)
             # Create placeholder config if not present
@@ -391,7 +432,7 @@ class ExperimentalDriversMenu:
             self.u.request_input()
             return
 
-        target_efi = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "Results", "EFI")
+        target_efi = self._get_target_efi()
         success, logs = self.rollback_mgr.execute_rollback(self.last_manifest, target_efi)
         print("\nRollback execution log:")
         for log in logs:

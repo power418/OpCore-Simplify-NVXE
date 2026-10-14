@@ -63,7 +63,7 @@ WHATEVERXE_DEFINITION = DriverDefinition(
         }
     },
     installation_destinations=["EFI/OC/Kexts"],
-    version_policy=VersionPolicy.PINNED,
+    version_policy=VersionPolicy.LATEST,
     pinned_release=DriverRelease(
         tag="v1.0.0-preview",
         commit="61a449255d385aeb468f64e5d5042e126f387b90",
@@ -161,15 +161,15 @@ NVIDIA_MACOS_DRIVER_DEFINITION = DriverDefinition(
         "/Library/GPUBundles/NVMTLDriver.bundle",
         "/Users/Shared/nvfw/nvidia/610.57.04",
     ],
-    version_policy=VersionPolicy.PINNED,
+    version_policy=VersionPolicy.LATEST,
     pinned_release=DriverRelease(
-        tag="v1.14.0",
-        commit="1083a98db33a0bb824290556de255f9a95ca5403",
-        release_name="1401 and NVIDIA driver 1.14.0",
-        published_at="2025-02-10T00:00:00Z",
-        download_url="https://github.com/nullmoth/nvidia-macos-driver/releases/download/v1.14.0/nullmoth-nvidia-1.14.0.tar.gz",
-        sha256="4f83b140134440538a7c1341a983b63294101e85a54b387413d9426f43274955",
-        changelog="Release 1.14.0: Metal 3 support, Mesa NVK translation layer, adapted r610 kernel modules for Sequoia.",
+        tag="v1.14.4",
+        commit="6c8b63d",
+        release_name="1401 and NVIDIA driver 1.14.4",
+        published_at="2026-10-13T01:00:00Z",
+        download_url="https://github.com/nullmoth/nvidia-macos-driver/releases/download/v1.14.4/nullmoth-nvidia-1.14.7.tar.gz",
+        sha256="",
+        changelog="Release 1.14.4: Fixed full-screen flicker on frame-copy machines; Intel/AMD test driver logs; ongoing support for laptops without MUX switch (unaccelerated screen output).",
     ),
     last_verified_timestamp="2026-10-12T00:00:00Z",
     source_evidence_references=[

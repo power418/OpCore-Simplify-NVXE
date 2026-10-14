@@ -134,13 +134,53 @@ class HardwareCustomizer:
                 print("GPU Configuration Options:")
                 print("  1. Enable Intel Iris Xe (WhateverXe) - NVIDIA dGPU Disabled (Recommended)")
                 print("  2. Disable all GPU acceleration (VESA / Basic Safe Mode)")
+                print("  3. Discrete NVIDIA dGPU Only (NullMoth Experimental - External Monitor HDMI Only, iGPU Disabled)")
                 print("")
-                gpu_pick = self.utils.request_input("Select GPU configuration (default: 1): ").strip() or "1"
+                gpu_pick = self.utils.request_input("Select GPU configuration (1/2/3, default: 1): ").strip() or "1"
                 if gpu_pick == "2":
                     for gname, gprops in list(devices.items()):
                         self.disabled_devices[f"GPU: {gname}"] = gprops
                         if gname in self.customized_hardware.get("GPU", {}):
                             del self.customized_hardware["GPU"][gname]
+                elif gpu_pick == "3":
+                    # 1. Disable all integrated GPUs
+                    for gname, gprops in list(devices.items()):
+                        self.disabled_devices[f"GPU: {gname}"] = gprops
+                        if gname in self.customized_hardware.get("GPU", {}):
+                            del self.customized_hardware["GPU"][gname]
+
+                    # 2. Find and un-disable discrete NVIDIA GPU
+                    target_nv_name = None
+                    target_nv_props = None
+                    for dname in list(self.disabled_devices.keys()):
+                        if "GPU" in dname and "NVIDIA" in str(self.disabled_devices[dname].get("Manufacturer", "")):
+                            target_nv_name = dname
+                            target_nv_props = self.disabled_devices[dname].copy()
+                            del self.disabled_devices[dname]
+                    if not target_nv_props:
+                        for gname, gprops in self.hardware_report.get("GPU", {}).items():
+                            if "NVIDIA" in str(gprops.get("Manufacturer", "")):
+                                target_nv_name = f"GPU: {gname}"
+                                target_nv_props = gprops.copy()
+                                break
+
+                    if target_nv_props:
+                        pure_name = target_nv_name.replace("GPU: ", "").replace("Discrete GPU: ", "")
+                        target_nv_props["Driver"] = "NullMoth"
+                        target_nv_props["Experimental"] = True
+                        if "GPU" not in self.customized_hardware:
+                            self.customized_hardware["GPU"] = {}
+                        self.customized_hardware["GPU"][pure_name] = target_nv_props
+                        if "GPU" not in self.selected_devices:
+                            self.selected_devices["GPU"] = {}
+                        self.selected_devices["GPU"][pure_name] = target_nv_props
+
+                        print("\n\033[1;93m[CRITICAL NOTICE - NVIDIA dGPU ONLY MODE CONFIGURED]\033[0m")
+                        print("  - Intel Iris Xe iGPU is now DISABLED (disable-gpu: True injected).")
+                        print("  - Built-in laptop screen will NOT display anything (no hardware MUX switch).")
+                        print("  - You MUST connect an external monitor to the HDMI port to use macOS.")
+                        print("  - NVIDIA RTX 3050 is enabled with NullMoth experimental boot parameters.\n")
+                        self.utils.request_input("Press Enter to acknowledge and continue...")
                 else:
                     for gname, gprops in devices.items():
                         if not device_type in self.selected_devices:

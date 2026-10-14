@@ -102,4 +102,23 @@ class OpenCoreIntegrator:
                         "PlistPath": "Contents/Info.plist",
                     })
 
+            elif key_path.startswith("DeviceProperties/Add/"):
+                # e.g. "DeviceProperties/Add/PciRoot(0x0)/Pci(0x2,0x0)"
+                # new_value is a dict of properties (Data bytes or str).
+                pci_path = key_path[len("DeviceProperties/Add/"):]
+                if pci_path and isinstance(change.new_value, dict):
+                    dp_add = config.setdefault("DeviceProperties", {}).setdefault("Add", {})
+                    node = dp_add.setdefault(pci_path, {})
+                    for prop_key, prop_val in change.new_value.items():
+                        if isinstance(prop_val, str) and prop_key != "model":
+                            # Accept 'D2460000' style Data hex strings.
+                            s = "".join(c for c in prop_val if c in "0123456789abcdefABCDEF")
+                            if len(s) == 8:
+                                try:
+                                    node[prop_key] = bytes.fromhex(s)
+                                    continue
+                                except ValueError:
+                                    pass
+                        node[prop_key] = prop_val
+
         return config

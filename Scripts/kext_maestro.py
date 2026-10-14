@@ -252,8 +252,20 @@ class KextMaestro:
         if self.is_intel_hedt_cpu(hardware_report.get("CPU").get("Processor Name"), hardware_report.get("CPU").get("Codename")):
             selected_kexts.append("CpuTscSync")
 
-        if needs_oclp:
-            selected_kexts.extend(("AMFIPass", "RestrictEvents"))
+        has_nullmoth = any(
+            gpu.get("Driver") == "NullMoth" or gpu.get("NullMoth") or "NVIDIA" in str(gpu.get("Manufacturer", ""))
+            for gpu in hardware_report.get("GPU", {}).values()
+        )
+        has_experimental_gpu = any(
+            gpu.get("Driver") in ("NullMoth", "WhateverXe") or gpu.get("Experimental")
+            for gpu in hardware_report.get("GPU", {}).values()
+        )
+
+        if needs_oclp or has_nullmoth or has_experimental_gpu:
+            if "AMFIPass" not in selected_kexts:
+                selected_kexts.append("AMFIPass")
+            if "RestrictEvents" not in selected_kexts:
+                selected_kexts.append("RestrictEvents")
 
         for network_name, network_props in hardware_report.get("Network", {}).items():
             device_id = network_props.get("Device ID")
@@ -439,6 +451,14 @@ class KextMaestro:
 
         if "Sandy Bridge" in hardware_report.get("CPU").get("Codename") or "Ivy Bridge" in hardware_report.get("CPU").get("Codename"):
             selected_kexts.extend(("AppleIntelCPUPowerManagement", "AppleIntelCPUPowerManagementClient"))
+
+        has_nullmoth_or_exp = any(
+            gpu.get("Driver") == "NullMoth" or gpu.get("NullMoth") or "NVIDIA" in str(gpu.get("Manufacturer", "")) or gpu.get("Experimental")
+            for gpu in hardware_report.get("GPU", {}).values()
+        )
+        if has_nullmoth_or_exp:
+            selected_kexts.append("AMFIPass")
+            selected_kexts.append("RestrictEvents")
 
         selected_kexts = list(dict.fromkeys(selected_kexts))
         force_load_kexts = self.verify_kext_compatibility(selected_kexts, macos_version)

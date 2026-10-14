@@ -5,6 +5,7 @@ from Scripts.datasets import kext_data
 from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import codec_layouts
+from Scripts.datasets import whateverxe_data
 from Scripts import gathering_files
 from Scripts import smbios
 from Scripts import utils
@@ -236,6 +237,126 @@ class ConfigProdigy:
                 break
 
         return dict(sorted(igpu_properties.items(), key=lambda item: item[0]))
+
+    def is_whateverxe_tiger_lake_headless(self, integrated_gpu, monitor):
+        """Tiger Lake headless check per WhateverXe README.
+
+        Returns True when the iGPU is Tiger Lake (9A40/9A49/9A78) and no
+        internal display is connected to it -> '-wex-nopanel' is required.
+        Alder Lake-N always returns False (external topology is automatic).
+        """
+        try:
+            device_id = whateverxe_data.normalize_device_id(integrated_gpu[1].get("Device ID", ""))
+        except Exception:
+            return False
+        if device_id not in whateverxe_data.TIGER_LAKE_IDS:
+            return False
+        for monitor_info in (monitor or {}).values():
+            if monitor_info.get("Connected GPU") == integrated_gpu[0] and monitor_info.get("Connector Type") == "Internal":
+                return False
+        return True
+
+    def validate_whateverxe_override(self, override_value, physical_device_id, physical_vendor_id="8086"):
+        """Thin wrapper around whateverxe_data validation (WhateverGreen-style, for Xe)."""
+        return whateverxe_data.validate_device_id_override(override_value, physical_device_id, physical_vendor_id)
+
+    def whateverxe_igpu_properties(self, integrated_gpu, monitor=None, dvmt_megabytes=None,
+                                    device_id_override=None, model=None):
+        """Build WhateverXe iGPU DeviceProperties per README + device-selection.md.
+
+        Mirrors the role of igpu_properties() (WhateverGreen) but for Xe:
+        - Automatic PCI selection needs NO wiring/platform-id props (VBT).
+        - Optional 'device-id' override: strict 4-byte LE Data, implemented
+          backends only (9A40/9A49/9A78/46D0-46D4). Invalid override never
+          falls back (caller must surface the error).
+        - Optional DVMT 60MB pair (both keys together). 96MB -> no props.
+        - Optional 'model' string is preserved as-is (descriptive only).
+
+        Returns:
+            (props_dict, needed_boot_args_list, warnings_list, error_or_None)
+            props values are hex strings (converted to bytes by deviceproperties()).
+        """
+        warnings = []
+        gpu_name, gpu_info = integrated_gpu
+        raw_id = gpu_info.get("Device ID", "")
+        vendor = "8086"
+        physical = whateverxe_data.normalize_device_id(raw_id[5:] if "-" in str(raw_id) else raw_id)
+        if "-" in str(raw_id):
+            vendor = str(raw_id).split("-")[0].strip().upper() or "8086"
+
+        if vendor != "8086":
+            return {}, [], [], "WhateverXe applies to Intel iGPUs only (found vendor {}).".format(vendor or "?")
+
+        props = {}
+
+        # --- device-id override (advanced, optional) ---
+        target = None
+        if device_id_override is not None:
+            # Accept hex-string ('D2460000'), bytes, or plain 4-hex ID ('46D2').
+            override_val = device_id_override
+            if isinstance(device_id_override, str):
+                s = "".join(c for c in device_id_override if c in "0123456789abcdefABCDEF")
+                if len(s) == 4:
+                    override_val = whateverxe_data.encode_device_id_override(s)
+                # else keep as-is (8-char Data hex) so validator reports malformed
+            is_valid, target, error, w = whateverxe_data.validate_device_id_override(
+                override_val, physical, vendor)
+            warnings.extend(w)
+            if not is_valid:
+                return {}, [], warnings, error
+            props["device-id"] = override_val if isinstance(override_val, str) else "".join("{:02X}".format(b) for b in bytes(override_val))
+            if target == physical:
+                warnings.append("device-id override 0x{} equals the physical ID; prefer automatic selection.".format(target))
+        else:
+            if physical and physical not in whateverxe_data.IMPLEMENTED_BACKEND_IDS:
+                if physical in whateverxe_data.IDENTIFICATION_ONLY_IDS:
+                    warnings.append(
+                        "Physical ID 0x{} is identification-only (no implemented WhateverXe backend). "
+                        "No device-id spoof is injected: spoofing an unsupported GPU is not a compatibility fix.".format(physical))
+                else:
+                    warnings.append(
+                        "Physical ID 0x{} has no implemented WhateverXe backend "
+                        "(implemented: {}). Automatic selection only.".format(
+                            physical or "?", ", ".join(whateverxe_data.IMPLEMENTED_BACKEND_IDS)))
+
+        # --- DVMT 60MB pair (both keys together, Data) ---
+        needed_boot_args = []
+        dvmt = None
+        # Auto-detect hint from report when caller did not specify explicitly.
+        if dvmt_megabytes is None:
+            for hint in (gpu_info.get("DVMT Pre-Allocated"), gpu_info.get("DVMT"),
+                         (monitor or {}).get("DVMT Pre-Allocated")):
+                if hint is None:
+                    continue
+                try:
+                    dvmt = int(str(hint).strip().split("MB")[0].split(" ")[0])
+                    break
+                except (ValueError, AttributeError):
+                    continue
+            try:
+                bios_hint = None
+                # hardware_report BIOS section is not passed here; ignore silently
+            except Exception:
+                pass
+        else:
+            try:
+                dvmt = int(dvmt_megabytes)
+            except (TypeError, ValueError):
+                dvmt = None
+        if dvmt == 60:
+            props.update(whateverxe_data.DVMT_60MB_PROPERTIES)
+            needed_boot_args.append("-igfxdvmt")
+        elif dvmt is not None and dvmt != 96 and dvmt_megabytes is not None:
+            warnings.append("DVMT Pre-Allocated {}MB is neither 60 nor 96; no DVMT properties injected (set 96MB in BIOS where possible).".format(dvmt))
+
+        # --- model (descriptive label only, preserved when supplied) ---
+        if model:
+            props["model"] = model
+        elif gpu_name and device_id_override is not None and target:
+            # Keep physical name by default; caller may set model explicitly.
+            pass
+
+        return dict(sorted(props.items(), key=lambda item: item[0])), needed_boot_args, warnings, None
     
     def select_audio_codec_layout(self, hardware_report, config=None, controller_required=False):
         try:
@@ -318,6 +439,35 @@ class ConfigProdigy:
 
             deviceproperties_add[pci_path].update(properties)
 
+        if kexts[kext_data.kext_index_by_name.get("WhateverXe")].checked:
+            for gpu_name, gpu_info in hardware_report.get("GPU", {}).items():
+                if gpu_info.get("Device Type") != "Integrated GPU":
+                    continue
+                if "Intel" not in gpu_info.get("Manufacturer", ""):
+                    continue
+                pci_path = gpu_info.get("PCI Path", whateverxe_data.DEFAULT_IGPU_PCI_PATH)
+                # Optional report hints (never spoof silently):
+                #  GPU['WhateverXe device-id'] = '46D2' / 'D2460000' (advanced override)
+                #  GPU['DVMT Pre-Allocated'] / BIOS['DVMT Pre-Allocated'] = 60/96
+                override_hint = gpu_info.get("WhateverXe device-id", gpu_info.get("WhateverXe device-id override"))
+                dvmt_hint = gpu_info.get("DVMT Pre-Allocated", gpu_info.get("DVMT"))
+                if dvmt_hint is None:
+                    dvmt_hint = hardware_report.get("BIOS", {}).get("DVMT Pre-Allocated", hardware_report.get("BIOS", {}).get("DVMT"))
+                xe_props, _xe_needed_args, _xe_warnings, xe_error = self.whateverxe_igpu_properties(
+                    (gpu_name, gpu_info),
+                    monitor=hardware_report.get("Monitor", {}),
+                    dvmt_megabytes=dvmt_hint,
+                    device_id_override=override_hint,
+                    model=None,
+                )
+                if xe_error:
+                    # Invalid override must NOT fall back silently: surface as
+                    # disabled node so validation fails loudly instead of
+                    # generating a misleading config.
+                    add_device_property(pci_path, {"#WhateverXe-error": "1"})
+                    continue
+                add_device_property(pci_path, xe_props)
+
         if kexts[kext_data.kext_index_by_name.get("WhateverGreen")].checked:
             for gpu_name, gpu_info in hardware_report.get("GPU", {}).items():
                 if gpu_info.get("Device Type") == "Integrated GPU":
@@ -394,7 +544,7 @@ class ConfigProdigy:
 
         for key, value in deviceproperties_add.items():
             for key_child, value_child in value.items():
-                if isinstance(value_child, str):
+                if isinstance(value_child, str) and key_child != "model":
                     deviceproperties_add[key][key_child] = self.utils.hex_to_bytes(deviceproperties_add[key][key_child])
 
         return deviceproperties_add
@@ -524,7 +674,53 @@ class ConfigProdigy:
                     boot_args.append("-lilubetaall")
 
             if kext.name == "WhateverXe":
-                boot_args.append("-xe-force-enable")
+                # Required boot arguments per WhateverXe README:
+                #   -allow3d -disablegfxfirmware
+                # Conditional:
+                #   -wex-nopanel on Tiger Lake headless (no internal display)
+                #   -igfxdvmt when DVMT 60MB DeviceProperties pair is present
+                for arg in whateverxe_data.REQUIRED_BOOT_ARGS:
+                    if arg not in boot_args:
+                        boot_args.append(arg)
+                for gpu_name, gpu_info in hardware_report.get("GPU", {}).items():
+                    if gpu_info.get("Device Type") == "Integrated GPU" and "Intel" in gpu_info.get("Manufacturer", ""):
+                        if self.is_whateverxe_tiger_lake_headless((gpu_name, gpu_info), hardware_report.get("Monitor", {})):
+                            if "-wex-nopanel" not in boot_args:
+                                boot_args.append("-wex-nopanel")
+                        dvmt_hint = gpu_info.get("DVMT Pre-Allocated", gpu_info.get("DVMT"))
+                        if dvmt_hint is None:
+                            dvmt_hint = hardware_report.get("BIOS", {}).get("DVMT Pre-Allocated", hardware_report.get("BIOS", {}).get("DVMT"))
+                        try:
+                            if dvmt_hint is not None and int(str(dvmt_hint).strip().split("MB")[0].split(" ")[0]) == 60:
+                                if "-igfxdvmt" not in boot_args:
+                                    boot_args.append("-igfxdvmt")
+                        except (ValueError, AttributeError):
+                            pass
+                # Sync with DeviceProperties actually generated for this run:
+                # if the DVMT 60MB pair was injected, -igfxdvmt must be present.
+                try:
+                    dp_add = (config.get("DeviceProperties") or {}).get("Add") or {}
+                    # config may not yet contain DeviceProperties at boot_args time;
+                    # fall back to recomputing directly.
+                    if not dp_add:
+                        for gpu_name, gpu_info in hardware_report.get("GPU", {}).items():
+                            if gpu_info.get("Device Type") == "Integrated GPU" and "Intel" in gpu_info.get("Manufacturer", ""):
+                                xe_props, xe_needed, _, _ = self.whateverxe_igpu_properties(
+                                    (gpu_name, gpu_info),
+                                    monitor=hardware_report.get("Monitor", {}),
+                                    dvmt_megabytes=gpu_info.get("DVMT Pre-Allocated", gpu_info.get("DVMT")),
+                                    device_id_override=gpu_info.get("WhateverXe device-id", gpu_info.get("WhateverXe device-id override")),
+                                )
+                                for a in xe_needed:
+                                    if a not in boot_args:
+                                        boot_args.append(a)
+                    else:
+                        for props in dp_add.values():
+                            if isinstance(props, dict) and "framebuffer-stolenmem" in props and "-igfxdvmt" not in boot_args:
+                                boot_args.append("-igfxdvmt")
+                                break
+                except Exception:
+                    pass
 
             if kext.name == "WhateverGreen":
                 if  any(tuple(map(int, "3840x2160".split("x"))) <= tuple(map(int, monitor_info.get("Resolution").split("x"))) for monitor_name, monitor_info in hardware_report.get("Monitor", {}).items()) and \
@@ -580,9 +776,29 @@ class ConfigProdigy:
             elif kext.name == "CpuTopologyRebuild":
                 boot_args.append("ctrsmt=full")
 
+        # Experimental NullMoth NVIDIA driver boot-args
+        for gpu_name, gpu_info in hardware_report.get("GPU", {}).items():
+            if gpu_info.get("Driver") == "NullMoth" or gpu_info.get("NullMoth") or "NVIDIA" in str(gpu_info.get("Manufacturer", "")):
+                nullmoth_args = [
+                    "nvfb=1",
+                    "nvaccel=1",
+                    "nvfbheads=4",
+                    "-nvkmsnosmooth",
+                    "amfi_get_out_of_my_way=0x1",
+                    "amfi=0x80",
+                    "ipc_control_port_options=0",
+                    "-wegnoigpu",
+                ]
+                for arg in nullmoth_args:
+                    if arg not in boot_args:
+                        boot_args.append(arg)
+                break
+
         return " ".join(boot_args)
     
-    def csr_active_config(self, macos_version):
+    def csr_active_config(self, macos_version, has_nullmoth=False):
+        if has_nullmoth:
+            return "430A0000"
         if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.0.0"):
             return "030A0000"
         elif self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("18.0.0"):
@@ -687,13 +903,32 @@ class ConfigProdigy:
         config["Misc"]["Entries"] = []
         config["Misc"]["Security"]["AllowSetDefault"] = True
         config["Misc"]["Security"]["ScanPolicy"] = 0
-        config["Misc"]["Security"]["SecureBootModel"] = "Default" if not needs_oclp and self.utils.parse_darwin_version("20.0.0") <= self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("23.0.0") else "Disabled"
+        has_nullmoth = any(
+            gpu.get("Driver") == "NullMoth" or gpu.get("NullMoth") or "NVIDIA" in str(gpu.get("Manufacturer", ""))
+            for gpu in hardware_report.get("GPU", {}).values()
+        )
+        if has_nullmoth:
+            config["Misc"]["Security"]["SecureBootModel"] = "Disabled"
+            config["Booter"]["Quirks"]["ResizeAppleGpuBars"] = -1
+            config["UEFI"]["Quirks"]["ResizeGpuBars"] = 13
+            if not any(b.get("Identifier") == "com.apple.iokit.IONDRVSupport" for b in config["Kernel"]["Block"]):
+                config["Kernel"]["Block"].append({
+                    "Arch": "x86_64",
+                    "Comment": "Exclude IONDRVSupport for NullMoth NVIDIA",
+                    "Enabled": True,
+                    "Identifier": "com.apple.iokit.IONDRVSupport",
+                    "MaxKernel": "",
+                    "MinKernel": "24.0.0",
+                    "Strategy": "Exclude",
+                })
+        else:
+            config["Misc"]["Security"]["SecureBootModel"] = "Default" if not needs_oclp and self.utils.parse_darwin_version("20.0.0") <= self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("23.0.0") else "Disabled"
         config["Misc"]["Security"]["Vault"] = "Optional"
         config["Misc"]["Tools"] = []
 
         del config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["#INFO (prev-lang:kbd)"]
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = self.boot_args(hardware_report, macos_version, needs_oclp, kexts, config)
-        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version))
+        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version, has_nullmoth))
         config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].append("csr-active-config")
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["prev-lang:kbd"] = self.utils.hex_to_bytes("")
 
